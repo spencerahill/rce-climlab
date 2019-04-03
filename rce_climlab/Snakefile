@@ -1,0 +1,24 @@
+ALBEDO = [0.5]
+DAYS = range(15, 346, 30)
+WATER = ['dry', 'moist']
+
+rule rce_one_time:
+    output:
+        "output/snake_test.nc"
+    run:
+        from rce_climlab import create_rce_model, run_rce_model
+        rce_climlab.run_rce_models()
+
+rule ann_cycle:
+    output:
+        expand("output/rce_day{day}_alb{alb}_{water}.nc",
+               day=DAYS, alb=ALBEDO, water=WATER)
+    message:
+        "Computing lat-by-lat RCE for {} points "
+        "in annual cycle".format(len(DAYS))
+    log:
+        "logs/ann_cycle.log"
+    run:
+        import rce_climlab
+        for day in DAYS:
+            rce_climlab.run_rce_models(day_of_year=day)
