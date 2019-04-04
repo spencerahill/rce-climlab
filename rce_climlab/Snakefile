@@ -1,24 +1,32 @@
-ALBEDO = [0.5]
-DAYS = range(15, 346, 30)
-WATER = ['dry', 'moist']
+import numpy as np
 
-rule rce_one_time:
-    output:
-        "output/snake_test.nc"
-    run:
-        from rce_climlab import create_rce_model, run_rce_model
-        rce_climlab.run_rce_models()
+DAYS_OF_YEAR = range(15, 356, 30)
+DLAT = 1
+LATS = np.arange(-90+0.5*DLAT, 90-0.49*DLAT, DLAT)
 
-rule ann_cycle:
+configfile: "config.yaml"
+
+rule rce_one_lat:
     output:
-        expand("output/rce_day{day}_alb{alb}_{water}.nc",
-               day=DAYS, alb=ALBEDO, water=WATER)
-    message:
-        "Computing lat-by-lat RCE for {} points "
-        "in annual cycle".format(len(DAYS))
-    log:
-        "logs/ann_cycle.log"
+        temp("tmp/lat_{lat}/solar_lon_{day_of_year}.nc")
+    shell:
+        "./rce_climlab.py --lat={wildcards.lat} "
+        "--day-of-year={wildcards.day_of_year} "
+        "--path-output={output} "
+        "--write-to-disk"
+
+rule rce_mult_lats:
+    input:
+        expand("tmp/lat_{lat}/solar_lon_{{day_of_year}}.nc", lat=LATS)
+    output:
+        "out/solar_lon_{day_of_year}.nc"
     run:
-        import rce_climlab
-        for day in DAYS:
-            rce_climlab.run_rce_models(day_of_year=day)
+        import xarray as xr
+        ds = xr.open_mfdataset(input[:],
+                               concat_dim=config['lat_str']).transpose()
+        ds.to_netcdf(output[0])
+
+
+rule rce_ann_cycle:
+    input:
+        expand("out/solar_lon_{day}.nc", day=DAYS_OF_YEAR)

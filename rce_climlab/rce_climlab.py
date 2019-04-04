@@ -26,7 +26,7 @@ import xarray as xr
 
 ALBEDO = 0.3
 DAY_TYPE = 2  # 2: `day` is solar longitude, 0-360 degrees
-DAY_OF_YEAR = 90  # 90 = NH summer solstice (if `day_type` is 2)
+DAY_OF_YEAR = 90.  # 90 = NH summer solstice (if `day_type` is 2)
 DIR_OUTPUT = 'output'
 DIR_TMP = 'tmp'
 DLAT_DEG = 5.
@@ -85,24 +85,32 @@ def rad_equil(solar_const=SOLAR_CONST, albedo=ALBEDO, ghg_layer=True,
     return temp
 
 
-def ann_mean_insol(lats):
+def ann_mean_insol(lat):
     """Get annual mean insolation."""
-    state = climlab.column_state(num_lev=1, lat=lats)
+    state = climlab.column_state(num_lev=1, lat=lat)
     return AnnualMeanInsolation(
         domains=state.Ts.domain).insolation.to_xarray().drop('depth').squeeze()
 
 
-def create_rce_model(lat, insol, coszen, num_vert_levels=NUM_VERT_LEVELS,
-                     albedo=ALBEDO, dry_atmos=False, rad_model=RRTMG,
+def create_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
+                     num_vert_levels=NUM_VERT_LEVELS, albedo=ALBEDO,
+                     dry_atmos=False, rad_model=RRTMG,
                      water_vapor=ManabeWaterVapor,
                      convec_model=ConvectiveAdjustment, lapse_rate=LAPSE_RATE,
                      temp_sfc_init=TEMP_SFC_INIT, quiet=True):
     """Create a column model for a single latitude."""
+    if day_of_year == 'ann':
+        insolation = ann_mean_insol(lat)
+    else:
+        insolation = daily_insolation(lat=lat, day_type=day_type,
+                                      day=day_of_year)
+    coszen = coszen_from_insol(lat, insolation)
+
     state = climlab.column_state(num_lev=num_vert_levels,
                                  water_depth=MIXED_LAYER_DEPTH)
     if temp_sfc_init is None:
         # Leading 2^(1/4) power is from simple 1 layer greenhouse.
-        temp_rad_eq = rad_equil(4*insol, albedo)
+        temp_rad_eq = rad_equil(4*insolation, albedo)
         temp_rad_eq = max(temp_rad_eq, TEMP_MIN_VALID)
         temp_rad_eq = min(temp_rad_eq, TEMP_MAX_VALID)
         state['Ts'][:] = temp_rad_eq
@@ -121,17 +129,17 @@ def create_rce_model(lat, insol, coszen, num_vert_levels=NUM_VERT_LEVELS,
     convec_proc = convec_model(state=state, adj_lapse_rate=lapse_rate)
 
     # Solar constant is four times the insolation.
-    insol_proc = FixedInsolation(S0=insol*4, domains=model.Ts.domain,
+    insol_proc = FixedInsolation(S0=insolation*4, domains=model.Ts.domain,
                                  coszen=coszen)
     if quiet:
         with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
             rad_proc = rad_model(state=state, specific_humidity=h2o_proc.q,
                                  albedo=albedo, insolation=insol_proc,
-                                 coszen=coszen, S0=insol*4)
+                                 coszen=coszen, S0=insolation*4)
     else:
         rad_proc = rad_model(state=state, specific_humidity=h2o_proc.q,
                              albedo=albedo, insolation=insol_proc,
-                             coszen=coszen, S0=insol*4)
+                             coszen=coszen, S0=insolation*4)
 
     model.add_subprocess('Radiation', rad_proc)
     model.add_subprocess('WaterVapor', h2o_proc)
@@ -179,8 +187,8 @@ def _run_rce_models(rce_models, lats, num_days_run=NUM_DAYS,
 
 @click.command()
 @click.option('--lat', default=0.)
-@click.option('--insol', default=0.25*SOLAR_CONST)
-@click.option('--coszen', default=0.25)
+@click.option('--day-type', 'day_type', default=DAY_TYPE)
+@click.option('--day-of-year', 'day_of_year', default=DAY_OF_YEAR)
 @click.option('--albedo', 'albedo', default=ALBEDO)
 @click.option('--dry-atmos', 'dry_atmos', default=False, is_flag=True)
 @click.option('--lapse-rate', 'lapse_rate', default=LAPSE_RATE)
@@ -190,29 +198,44 @@ def _run_rce_models(rce_models, lats, num_days_run=NUM_DAYS,
 @click.option('--temp-min-valid', 'temp_min_valid', default=TEMP_MIN_VALID)
 @click.option('--temp-max-valid', 'temp_max_valid', default=TEMP_MAX_VALID)
 @click.option('--temp-sfc-init', 'temp_sfc_init', default=TEMP_SFC_INIT)
-def create_and_run_rce_model(lat, insol, coszen, dry_atmos=False,
-                             num_vert_levels=NUM_VERT_LEVELS, albedo=ALBEDO,
-                             rad_model=RRTMG, water_vapor=ManabeWaterVapor,
+@click.option('--path-output', 'path_output', default=".")
+@click.option('--write-to-disk', 'write_to_disk',
+              default=WRITE_TO_DISK, is_flag=True)
+def create_and_run_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
+                             dry_atmos=False, num_vert_levels=NUM_VERT_LEVELS,
+                             albedo=ALBEDO, rad_model=RRTMG,
+                             water_vapor=ManabeWaterVapor,
                              convec_model=ConvectiveAdjustment,
                              lapse_rate=LAPSE_RATE,
                              temp_sfc_init=TEMP_SFC_INIT,
                              dt_in_days=DT_IN_DAYS, num_days_run=NUM_DAYS,
                              temp_min_valid=TEMP_MIN_VALID,
-                             temp_max_valid=TEMP_MAX_VALID, quiet=True):
+                             temp_max_valid=TEMP_MAX_VALID,
+                             write_to_disk=WRITE_TO_DISK, path_output=None,
+                             quiet=True):
     """Create and run a column model for a single latitude."""
+    print("lat value: {}".format(lat))
     model = create_rce_model(
-        lat, insol, coszen, num_vert_levels=num_vert_levels, albedo=albedo,
-        dry_atmos=dry_atmos, rad_model=rad_model, water_vapor=water_vapor,
+        lat, day_type=day_type, day_of_year=day_of_year,
+        num_vert_levels=num_vert_levels, albedo=albedo, dry_atmos=dry_atmos,
+        rad_model=rad_model, water_vapor=water_vapor,
         convec_model=convec_model, lapse_rate=lapse_rate,
         temp_sfc_init=temp_sfc_init, quiet=quiet)
     ds = run_rce_model(model, num_days_run=num_days_run, dt_in_days=dt_in_days,
                        temp_min_valid=temp_min_valid,
                        temp_max_valid=temp_max_valid)
     ds.coords[LAT_STR] = lat
-    path = os.path.join(DIR_TMP, 'rce_climlab_lat{}.nc'.format(lat))
-    click.echo(path)
-    ds.to_netcdf(path)
-    return path
+
+    if write_to_disk:
+        if path_output == ".":
+            path = os.path.join(DIR_TMP, 'rce_climlab_lat{}.nc'.format(lat))
+        else:
+            path = path_output
+
+        click.echo(path)
+        ds.to_netcdf(path)
+
+    return ds
 
 
 def popen_call_and_monitor(popen_args, popen_kwargs):
@@ -478,4 +501,5 @@ def rce_ann_mean(lat_spacing=DLAT_DEG, dt_days=DT_IN_DAYS,
 
 
 if __name__ == '__main__':
-    ds = run_rce_models()
+    # ds = run_rce_models()
+    create_and_run_rce_model()
