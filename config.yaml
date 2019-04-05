@@ -1,0 +1,29 @@
+const:
+  solar_const: 1365.2
+  stef_boltz_const: 5.6704e-8
+
+dirs:
+  output: 'output'
+  tmp: 'tmp'
+
+grid:
+  dlat_deg: 30.
+  dtime_days: 5.
+  num_ann_cycle_points: 4
+  num_vert_levels: 30
+  num_days: 100.
+
+model:
+  albedo: 0.3
+  day_type: 2
+  dry_atmos: False
+  lapse_rate: 6.5
+  mixed_layer_depth: 1.
+  temp_min_valid: 150.
+  temp_max_valid: 340.
+
+str:
+  day_str: 'day'
+  lat_str: 'lat'
+  lev_str: 'lev'
+  time_str: 'time'
