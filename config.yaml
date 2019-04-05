@@ -13,12 +13,16 @@ grid:
   num_vert_levels: 30
   num_days: 100.
 
+albedo: 0.3
+
 model:
-  albedo: 0.3
   day_type: 2
   dry_atmos: False
   lapse_rate: 6.5
   mixed_layer_depth: 1.
+
+runtime:
+  quiet: False
   temp_min_valid: 150.
   temp_max_valid: 340.
 
