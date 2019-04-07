@@ -86,9 +86,17 @@ def ann_mean_insol(lat):
         domains=state.Ts.domain).insolation.to_xarray().drop('depth').squeeze()
 
 
+def time_avg_insol(lat, start_day, end_day, day_type=2):
+    """Average insolation over the subset of the annual cycle."""
+    days = np.arange(start_day, end_day+0.1, 1)
+    insolation = [daily_insolation(lat=lat, day_type=day_type, day=day)
+                  for day in days]
+    return np.array(insolation).mean(axis=0)
+
+
 def create_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
-                     num_vert_levels=NUM_VERT_LEVELS, albedo=ALBEDO,
-                     dry_atmos=False, rad_model=RRTMG,
+                     insol_avg_window=1, num_vert_levels=NUM_VERT_LEVELS,
+                     albedo=ALBEDO, dry_atmos=False, rad_model=RRTMG,
                      water_vapor=ManabeWaterVapor,
                      convec_model=ConvectiveAdjustment, lapse_rate=LAPSE_RATE,
                      temp_sfc_init=TEMP_SFC_INIT, quiet=True):
@@ -96,8 +104,14 @@ def create_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
     if day_of_year == 'ann':
         insolation = ann_mean_insol(lat)
     else:
-        insolation = daily_insolation(lat=lat, day_type=day_type,
-                                      day=day_of_year)
+        if insol_avg_window > 1:
+            dday = 0.5*insol_avg_window,
+            insolation = time_avg_insol(lat, day_of_year - dday,
+                                        day_of_year + dday,
+                                        day_type=day_type)
+        else:
+            insolation = daily_insolation(lat=lat, day_type=day_type,
+                                          day=day_of_year)
     coszen = coszen_from_insol(lat, insolation)
 
     state = climlab.column_state(num_lev=num_vert_levels,
@@ -117,6 +131,8 @@ def create_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
     if dry_atmos:
         h2o_proc = FixedRelativeHumidity(relative_humidity=0., qStrat=0.,
                                          state=state)
+        print("Dry atmosphere specified, so overriding given lapse rate of "
+              "'{}' with dry adiabatic lapse rate.".format(lapse_rate))
         lapse_rate = LAPSE_RATE_DRY
     else:
         h2o_proc = water_vapor(state=state)
@@ -172,9 +188,9 @@ def run_rce_model(rce_model, num_days_run=NUM_DAYS, dt_in_days=DT_IN_DAYS,
 
 
 def create_and_run_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
-                             dry_atmos=False, num_vert_levels=NUM_VERT_LEVELS,
-                             albedo=ALBEDO, rad_model=RRTMG,
-                             water_vapor=ManabeWaterVapor,
+                             dry_atmos=False, insol_avg_window=1,
+                             num_vert_levels=NUM_VERT_LEVELS, albedo=ALBEDO,
+                             rad_model=RRTMG, water_vapor=ManabeWaterVapor,
                              convec_model=ConvectiveAdjustment,
                              lapse_rate=LAPSE_RATE,
                              temp_sfc_init=TEMP_SFC_INIT,
@@ -187,10 +203,10 @@ def create_and_run_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
     print("lat value: {}".format(lat))
     model = create_rce_model(
         lat, day_type=day_type, day_of_year=day_of_year,
-        num_vert_levels=num_vert_levels, albedo=albedo, dry_atmos=dry_atmos,
-        rad_model=rad_model, water_vapor=water_vapor,
-        convec_model=convec_model, lapse_rate=lapse_rate,
-        temp_sfc_init=temp_sfc_init, quiet=quiet)
+        insol_avg_window=insol_avg_window, num_vert_levels=num_vert_levels,
+        albedo=albedo, dry_atmos=dry_atmos, rad_model=rad_model,
+        water_vapor=water_vapor, convec_model=convec_model,
+        lapse_rate=lapse_rate, temp_sfc_init=temp_sfc_init, quiet=quiet)
     ds = run_rce_model(model,
                        num_days_run=num_days_run,
                        dt_in_days=dt_in_days,
