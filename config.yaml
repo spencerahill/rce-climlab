@@ -7,11 +7,11 @@ dirs:
   tmp: 'tmp'
 
 grid:
-  dlat_deg: 30.
+  dlat_deg: 1.
   dtime_days: 5.
-  num_ann_cycle_points: 4
+  num_ann_cycle_points: 12
   num_vert_levels: 30
-  num_days: 100.
+  num_days: 2000.
 
 albedo: 0.3
 
