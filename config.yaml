@@ -8,18 +8,17 @@ dirs:
 
 grid:
   dlat_deg: 1.
-  dtime_days: 5.
+  dtime_days: 2.
   num_ann_cycle_points: 12
   num_vert_levels: 30
   num_days: 2000.
 
-albedo: 0.3
+albedo: 0.4
 
 model:
   day_type: 2
   lapse_rate: 6.5
   insol_avg_window: 1.
-  mixed_layer_depth: 1.
 
 runtime:
   quiet: False
