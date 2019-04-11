@@ -16,7 +16,7 @@ grid:
 albedo: 0.4
 
 model:
-  day_type: 2
+  day_type: 1
   lapse_rate: 6.5
   insol_avg_window: 1.
 

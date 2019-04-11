@@ -8,6 +8,7 @@ import climlab
 from climlab.convection import ConvectiveAdjustment
 from climlab.radiation import (
     AnnualMeanInsolation,
+    DailyInsolation,
     FixedInsolation,
     RRTMG,
 )
@@ -21,8 +22,9 @@ import xarray as xr
 
 
 ALBEDO = 0.3
-DAY_TYPE = 2  # 2: `day` is solar longitude, 0-360 degrees
-DAY_OF_YEAR = 90.  # 90 = NH summer solstice (if `day_type` is 2)
+DAY_TYPE = 1  # 1: `day` is calendar day, starting January 1
+DAY_OF_YEAR = 80.  # 80 = NH spring equinox
+DAY_OF_YEAR_STR = 'day_of_year'
 DIR_OUTPUT = 'output'
 DIR_TMP = 'tmp'
 DT_IN_DAYS = 20.
@@ -62,6 +64,11 @@ def time_arr(start=0, stop=100, spacing=1., dim=TIME_STR):
     return _coord_arr_1d(start, stop, spacing, dim)
 
 
+def days_of_year_arr(start=1, stop=365, spacing=1., dim=DAY_OF_YEAR):
+    """Convenience function to create an array of times."""
+    return _coord_arr_1d(start, stop, spacing, dim)
+
+
 def coszen_from_insol(lats, insol):
     """Get cosine of zenith angle."""
     state = climlab.column_state(num_lev=1, lat=lats)
@@ -70,12 +77,13 @@ def coszen_from_insol(lats, insol):
     return rad.coszen
 
 
-def rad_equil(solar_const=SOLAR_CONST, albedo=ALBEDO, ghg_layer=True,
-              stef_boltz_const=STEF_BOLTZ_CONST):
+def rad_equil(solar_const: float = SOLAR_CONST,
+              albedo: float = ALBEDO,
+              ghg_layers: int = 1,
+              stef_boltz_const: float = STEF_BOLTZ_CONST) -> float:
     """Radiative equilibrium with optional single greenhouse layer."""
     temp = (solar_const*(1-albedo) / (4*STEF_BOLTZ_CONST))**0.25
-    if ghg_layer:
-        temp *= 2**0.25
+    temp *= (2**0.25)**int(ghg_layers)
     return temp
 
 
@@ -86,7 +94,7 @@ def ann_mean_insol(lat):
         domains=state.Ts.domain).insolation.to_xarray().drop('depth').squeeze()
 
 
-def time_avg_insol(lat, start_day, end_day, day_type=2):
+def time_avg_insol(lat, start_day, end_day, day_type=1):
     """Average insolation over the subset of the annual cycle."""
     days = np.arange(start_day, end_day+0.1, 1)
     insolation = [daily_insolation(lat=lat, day_type=day_type, day=day)
@@ -94,30 +102,38 @@ def time_avg_insol(lat, start_day, end_day, day_type=2):
     return np.array(insolation).mean(axis=0)
 
 
-def create_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
-                     insol_avg_window=1, num_vert_levels=NUM_VERT_LEVELS,
-                     albedo=ALBEDO, dry_atmos=False, rad_model=RRTMG,
+def create_rce_model(lat, day_type=DAY_TYPE, insol_type='fixed_day',
+                     day_of_year=DAY_OF_YEAR, insol_avg_window=1,
+                     num_vert_levels=NUM_VERT_LEVELS, albedo=ALBEDO,
+                     mixed_layer_depth=MIXED_LAYER_DEPTH,
+                     dry_atmos=False, rad_model=RRTMG,
                      water_vapor=ManabeWaterVapor,
                      convec_model=ConvectiveAdjustment, lapse_rate=LAPSE_RATE,
                      temp_sfc_init=TEMP_SFC_INIT, quiet=True):
     """Create a column model for a single latitude."""
-    if day_of_year == 'ann':
-        insolation = ann_mean_insol(lat)
+    valid_insol_types = ('fixed_day', 'ann_mean', 'ann_cycle')
+    if insol_type not in valid_insol_types:
+        raise ValueError("insol type must be one of {0}.  "
+                         "Got {1}".format(valid_insol_types, insol_type))
+    if insol_type == 'ann_cycle':
+        insolation = daily_insolation(lat=lat, day=days_of_year_arr())
     else:
-        if insol_avg_window > 1:
-            dday = 0.5*insol_avg_window,
-            insolation = time_avg_insol(lat, day_of_year - dday,
-                                        day_of_year + dday,
-                                        day_type=day_type)
-        else:
-            insolation = daily_insolation(lat=lat, day_type=day_type,
-                                          day=day_of_year)
-    coszen = coszen_from_insol(lat, insolation)
+        if insol_type == 'ann_mean':
+            insolation = ann_mean_insol(lat)
+        elif insol_type == 'fixed_day':
+            if insol_avg_window > 1:
+                dday = 0.5*insol_avg_window,
+                insolation = time_avg_insol(lat, day_of_year - dday,
+                                            day_of_year + dday,
+                                            day_type=day_type)
+            else:
+                insolation = daily_insolation(lat=lat, day_type=day_type,
+                                              day=day_of_year)
+        coszen = coszen_from_insol(lat, insolation)
 
     state = climlab.column_state(num_lev=num_vert_levels,
-                                 water_depth=MIXED_LAYER_DEPTH)
+                                 water_depth=mixed_layer_depth)
     if temp_sfc_init is None:
-        # Leading 2^(1/4) power is from simple 1 layer greenhouse.
         temp_rad_eq = rad_equil(4*insolation, albedo)
         temp_rad_eq = max(temp_rad_eq, TEMP_MIN_VALID)
         temp_rad_eq = min(temp_rad_eq, TEMP_MAX_VALID)
@@ -139,8 +155,11 @@ def create_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
     convec_proc = convec_model(state=state, adj_lapse_rate=lapse_rate)
 
     # Solar constant is four times the insolation.
-    insol_proc = FixedInsolation(S0=insolation*4, domains=model.Ts.domain,
-                                 coszen=coszen)
+    if insol_type in ('ann_mean', 'fixed_day'):
+        insol_proc = FixedInsolation(S0=insolation*4, domains=model.Ts.domain,
+                                     coszen=coszen)
+    else:
+        insol_proc = DailyInsolation(domains=model.Ts.domain)
     if quiet:
         with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
             rad_proc = rad_model(state=state, specific_humidity=h2o_proc.q,
@@ -220,7 +239,6 @@ def create_and_run_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
         else:
             path = path_output
 
-        # print(path)
         print(path)
         ds.to_netcdf(path)
 
@@ -228,4 +246,4 @@ def create_and_run_rce_model(lat, day_type=DAY_TYPE, day_of_year=DAY_OF_YEAR,
 
 
 if __name__ == '__main__':
-    create_and_run_rce_model()
+    pass
