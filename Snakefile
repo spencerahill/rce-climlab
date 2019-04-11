@@ -9,13 +9,16 @@ snakemake --cluster "sbatch --output=logs/slurm-%A_%a.out
 
 configfile: "config.yaml"
 
+
 import numpy as np
+
 
 ANN_CYC_SPACING = 360. / config['grid']['num_ann_cycle_points']
 DAYS_OF_YEAR = np.arange(0.5*ANN_CYC_SPACING, 360-0.49*ANN_CYC_SPACING,
                          ANN_CYC_SPACING)
 DLAT = config['grid']['dlat_deg']
 LATS = np.arange(-90+0.5*DLAT, 90-0.49*DLAT, DLAT)
+
 
 rule daily_insolation:
     output:
@@ -33,6 +36,7 @@ rule daily_insolation:
         insol.attrs['day_of_year'] = int(wildcards['day_of_year'])
         insol.attrs['day_type'] = 1
         insol.to_netcdf(output[0])
+
 
 rule rce_single_lat:
     output:
@@ -68,6 +72,7 @@ rule rce_single_lat:
             path_output=output[0],
         )
 
+
 rule rce_mult_lats:
     input:
         expand("tmp/{{dry_moist}}/albedo_{{albedo}}/"
@@ -80,6 +85,7 @@ rule rce_mult_lats:
                                concat_dim=config['str']['lat_str']).transpose()
         ds.to_netcdf(output[0])
 
+
 rule rce_ann_cycle:
     input:
         expand("out/{{dry_moist}}/albedo_{{albedo}}/day_of_year_{day}.nc",
@@ -91,10 +97,11 @@ rule rce_ann_cycle:
         ds = xr.open_mfdataset(input[:], concat_dim=config['str']['day_str'])
         ds.to_netcdf(output[0])
 
+
 rule transient_ann_cycle_single_lat:
     output:
         "tmp/{dry_moist}/albedo_{albedo}/ml_depth_{ml_depth}/"
-        "ann_cycle_lat_{lat}.nc"
+        "transient_ann_cycle_lat_{lat}.nc"
     run:
         from rce_climlab import create_and_run_rce_model
 
@@ -114,19 +121,22 @@ rule transient_ann_cycle_single_lat:
             num_vert_levels=config['grid']['num_vert_levels'],
             albedo=float(wildcards['albedo']),
             lapse_rate=config['model']['lapse_rate'],
-            dt_in_days=config['grid']['dtime_days'],
-            num_days_run=365*20,
+            dt_in_days=20,
+            num_days_run=365*5,
+            check_temps_valid=False,
             temp_min_valid=config['runtime']['temp_min_valid'],
             temp_max_valid=config['runtime']['temp_max_valid'],
+            temp_sfc_init=280.,
             write_to_disk=True,
             quiet=config['runtime']['quiet'],
             path_output=output[0],
         )
 
+
 rule transient_ann_cycle_mult_lats:
     input:
         expand("tmp/{{dry_moist}}/albedo_{{albedo}}/ml_depth_{{ml_depth}}/"
-               "ann_cycle_lat_{lat}.nc", lat=LATS)
+               "transient_ann_cycle_lat_{lat}.nc", lat=LATS)
     output:
         "out/{dry_moist}/albedo_{albedo}/ml_depth_{ml_depth}/"
         "transient_ann_cycle.nc"
