@@ -17,7 +17,7 @@ ANN_CYC_SPACING = 360. / config['grid']['num_ann_cycle_points']
 DAYS_OF_YEAR = np.arange(0.5*ANN_CYC_SPACING, 360-0.49*ANN_CYC_SPACING,
                          ANN_CYC_SPACING)
 DLAT = config['grid']['dlat_deg']
-LATS = np.arange(-90+0.5*DLAT, 90-0.49*DLAT, DLAT)
+LATS = np.arange(-88+0.5*DLAT, 88-0.49*DLAT, DLAT)
 
 
 rule daily_insolation:
@@ -121,12 +121,12 @@ rule transient_ann_cycle_single_lat:
             num_vert_levels=config['grid']['num_vert_levels'],
             albedo=float(wildcards['albedo']),
             lapse_rate=config['model']['lapse_rate'],
-            dt_in_days=20,
+            dt_in_days=5,
             num_days_run=365*5,
-            check_temps_valid=False,
+            check_temps_valid=True,
             temp_min_valid=config['runtime']['temp_min_valid'],
             temp_max_valid=config['runtime']['temp_max_valid'],
-            temp_sfc_init=280.,
+            temp_sfc_init=None,
             write_to_disk=True,
             quiet=config['runtime']['quiet'],
             path_output=output[0],

@@ -195,12 +195,20 @@ def _gen_col_model(state, h2o_proc, convec_proc, insol_proc, rad_proc):
     return model
 
 
-def rad_equil(solar_const: float = SOLAR_CONST,
+def rad_equil(insol,
               albedo: float = ALBEDO,
               ghg_layers: int = 1,
-              stef_boltz_const: float = STEF_BOLTZ_CONST) -> float:
-    """Radiative equilibrium with optional single greenhouse layer."""
-    temp = (solar_const*(1-albedo) / (4*STEF_BOLTZ_CONST))**0.25
+              stef_boltz_const: float = STEF_BOLTZ_CONST):
+    """Radiative equilibrium with optional single greenhouse layer.
+
+    Standard planetary enerby balance model is solar constant divided by 4,
+    which is the global mean insolation accounting for the diurnal cycle that
+    generates an effective 0.25 cosine of zenith angle.  Here, that is replaced
+    with whatever the actual local insolation value is that is specified, since
+    we're considering individual latitudes and the zenith angle can differ.
+
+    """
+    temp = (insol*(1-albedo) / (STEF_BOLTZ_CONST))**0.25
     temp *= (2**0.25)**int(ghg_layers)
     return temp
 
@@ -208,10 +216,9 @@ def rad_equil(solar_const: float = SOLAR_CONST,
 def _init_temps(state, rad_proc, temp_sfc_init=TEMP_SFC_INIT):
     """Initialize surface and atmospheric temperatures for climlab."""
     if temp_sfc_init is None:
-        temp_rad_eq = rad_equil(rad_proc.insolation*rad_proc.coszen,
-                                rad_proc.albedo)
-        temp_rad_eq = max(temp_rad_eq, TEMP_MIN_VALID)
-        temp_rad_eq = min(temp_rad_eq, TEMP_MAX_VALID)
+        temp_rad_eq = rad_equil(rad_proc.insolation, albedo=rad_proc.asdir)
+        temp_rad_eq = np.maximum(temp_rad_eq, TEMP_MIN_VALID)
+        temp_rad_eq = np.minimum(temp_rad_eq, TEMP_MAX_VALID)
         state['Ts'][:] = temp_rad_eq
     else:
         state['Ts'][:] = temp_sfc_init
