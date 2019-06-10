@@ -85,13 +85,6 @@ def coszen_from_insol(lats, insol, quiet=True):
         return RRTMG(state=state, insolation=insol).coszen
 
 
-def ann_mean_insol(lat):
-    """Get annual mean insolation."""
-    state = climlab.column_state(num_lev=1, lat=lat)
-    return AnnualMeanInsolation(
-        domains=state.Ts.domain).insolation.to_xarray().drop('depth').squeeze()
-
-
 def time_avg_insol(lat, start_day, end_day, day_type=1):
     """Average insolation over the subset of the annual cycle."""
     days = np.arange(start_day, end_day+0.1, 1)
@@ -108,7 +101,7 @@ def _gen_column_state(lat,
     # Hack to get climlab's DailyInsolation to work at a single latitude: just
     # create a len-2 array with the same latitude.  Later in the pipeline,
     # strip off that duplicate value.
-    do_duplicate = (insol_type == 'ann_cycle' and
+    do_duplicate = (insol_type in ('ann_cycle', 'ann_mean') and
                     (np.isscalar(lat) or np.size(lat) == 1))
     if do_duplicate:
         state_lat = [lat, lat]
@@ -144,12 +137,13 @@ def _gen_insol_proc(lat, state,
                     insol_type: str = 'fixed_day',
                     day_of_year: int = DAY_OF_YEAR,
                     day_type: int = DAY_TYPE,
-                    insol_avg_window: int = 1):
+                    insol_avg_window: int = 1,
+                    solar_const: float = SOLAR_CONST):
     """Generate insolation and corresponding zenith angle arrays."""
     if insol_type == 'ann_cycle':
         return DailyInsolation(state=state, domains=state.Ts.domain)
     if insol_type == 'ann_mean':
-        insolation = ann_mean_insol(lat)
+        return AnnualMeanInsolation(state=state, domains=state.Ts.domain)
     elif insol_type == 'fixed_day':
         if insol_avg_window > 1:
             dday = 0.5*insol_avg_window,
@@ -159,17 +153,12 @@ def _gen_insol_proc(lat, state,
         else:
             insolation = daily_insolation(lat=lat, day_type=day_type,
                                           day=day_of_year)
-    else:
-        VALID_INSOL_TYPES = ('fixed_day', 'ann_mean', 'ann_cycle')
-        raise ValueError("insol type must be one of {0}.  "
-                         "Got {1}".format(VALID_INSOL_TYPES, insol_type))
-
-    coszen = coszen_from_insol(lat, insolation)
-
-    # Solar constant is insolation divided by cosine of the zenith angle.
-    return FixedInsolation(S0=insolation/coszen,
-                           domains=state.Ts.domain,
-                           coszen=coszen)
+        coszen = coszen_from_insol(lat, insolation)
+        return FixedInsolation(S0=solar_const, domains=state.Ts.domain,
+                               coszen=coszen)
+    VALID_INSOL_TYPES = ('fixed_day', 'ann_mean', 'ann_cycle')
+    raise ValueError("insol type must be one of {0}.  "
+                     "Got {1}".format(VALID_INSOL_TYPES, insol_type))
 
 
 def _gen_rad_proc(state, insol_proc, h2o_proc, albedo,

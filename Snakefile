@@ -20,6 +20,16 @@ DLAT = config['grid']['dlat_deg']
 LATS = np.arange(-88+0.5*DLAT, 88-0.49*DLAT, DLAT)
 
 
+def verify_dry_moist(dry_moist):
+    if dry_moist == 'dry':
+        return True
+    elif dry_moist == 'moist':
+        return False
+    else:
+        raise ValueError("Dry/moist flag must be either 'dry' or 'moist'. "
+                         "Value given: {}".format(DRY_MOIST))
+
+
 rule daily_insolation:
     output:
         "out/daily_insol/day_of_year_{day_of_year}/"
@@ -45,13 +55,7 @@ rule rce_single_lat:
     run:
         from rce_climlab import create_and_run_rce_model
 
-        if wildcards['dry_moist'] == 'dry':
-            dry_atmos = True
-        elif wildcards['dry_moist'] == 'moist':
-            dry_atmos = False
-        else:
-            raise ValueError("Dry/moist flag must be either 'dry' or 'moist'. "
-                             "Value given: {}".format(wildcards['dry_moist']))
+        dry_atmos = verify_dry_moist(wildcards['dry_moist'])
 
         create_and_run_rce_model(
             float(wildcards['lat']),
@@ -86,6 +90,44 @@ rule rce_mult_lats:
         ds.to_netcdf(output[0])
 
 
+rule rce_single_lat_ann_mean:
+    output:
+        "tmp/{dry_moist}/albedo_{albedo}/ann_mean/lat_{lat}.nc"
+    run:
+        from rce_climlab import create_and_run_rce_model
+
+        dry_atmos = verify_dry_moist(wildcards['dry_moist'])
+
+        create_and_run_rce_model(
+            float(wildcards['lat']),
+            insol_type='ann_mean',
+            dry_atmos=dry_atmos,
+            num_vert_levels=config['grid']['num_vert_levels'],
+            albedo=float(wildcards['albedo']),
+            lapse_rate=config['model']['lapse_rate'],
+            dt_in_days=config['grid']['dtime_days'],
+            num_days_run=config['grid']['num_days'],
+            temp_min_valid=config['runtime']['temp_min_valid'],
+            temp_max_valid=config['runtime']['temp_max_valid'],
+            write_to_disk=True,
+            quiet=config['runtime']['quiet'],
+            path_output=output[0],
+        )
+
+
+rule rce_ann_mean:
+    input:
+        expand("tmp/{{dry_moist}}/albedo_{{albedo}}/ann_mean/lat_{lat}.nc",
+               lat=LATS)
+    output:
+        "out/{dry_moist}/albedo_{albedo}/rce_ann_mean.nc"
+    run:
+        import xarray as xr
+        ds = xr.open_mfdataset(input[:], concat_dim=config['str']['lat_str'])
+        # Drop the unneeded ML depth and depth bounds coords.
+        ds.isel(depth=0).drop_dims('depth_bounds').to_netcdf(output[0])
+
+
 rule rce_ann_cycle:
     input:
         expand("out/{{dry_moist}}/albedo_{{albedo}}/day_of_year_{day}.nc",
@@ -105,13 +147,7 @@ rule transient_ann_cycle_single_lat:
     run:
         from rce_climlab import create_and_run_rce_model
 
-        if wildcards['dry_moist'] == 'dry':
-            dry_atmos = True
-        elif wildcards['dry_moist'] == 'moist':
-            dry_atmos = False
-        else:
-            raise ValueError("Dry/moist flag must be either 'dry' or 'moist'. "
-                             "Value given: {}".format(wildcards['dry_moist']))
+        dry_atmos = verify_dry_moist(wildcards['dry_moist'])
 
         create_and_run_rce_model(
             float(wildcards['lat']),

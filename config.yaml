@@ -8,7 +8,7 @@ dirs:
 
 grid:
   dlat_deg: 1.
-  dtime_days: 2.
+  dtime_days: 20.
   num_ann_cycle_points: 12
   num_vert_levels: 30
   num_days: 2000.
